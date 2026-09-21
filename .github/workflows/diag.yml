@@ -1,0 +1,56 @@
+name: Diag Media
+
+on:
+  workflow_dispatch:
+    inputs:
+      course_id:
+        description: "iCourse course id, e.g. 37439"
+        required: true
+      sub_ids:
+        description: "optional comma-separated sub_ids; empty = all lectures with playback"
+        required: false
+        default: ""
+      dump_all:
+        description: "set 1 to also include lectures without playback"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('requirements.txt') }}
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Probe media URLs
+        env:
+          StuId: ${{ secrets.STUID }}
+          UISPsw: ${{ secrets.UISPSW }}
+          COURSE_IDS: ${{ secrets.COURSE_IDS }}
+          CRAWL_TERM: ${{ secrets.CRAWL_TERM }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          DIAG_COURSE_ID: ${{ inputs.course_id }}
+          DIAG_SUB_IDS: ${{ inputs.sub_ids }}
+          DIAG_ALL: ${{ inputs.dump_all }}
+        run: python -u scripts/diag_media.py
