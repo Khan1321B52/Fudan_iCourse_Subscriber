@@ -132,10 +132,27 @@ def main_run():
             seen.add(url)
             uniq.append((name, url))
 
+        server_now = info.get("now")
+        if isinstance(server_now, str):
+            try:
+                server_now = int(server_now)
+            except ValueError:
+                server_now = None
+
         print("   %d candidate url(s)" % len(uniq), flush=True)
         for name, url in uniq:
-            print("   - %s\n       %s\n       -> %s" % (
-                name, url[:170], probe(url)), flush=True)
+            if not url.lower().endswith(".mp4"):
+                print("   - %s\n       (skipped, not mp4) %s" % (name, url[:120]), flush=True)
+                continue
+            signed = None
+            try:
+                signed = client.sign_video_url(url, server_now)
+            except Exception as e:
+                print("   - %s signing failed: %s" % (name, e), flush=True)
+            target = signed or url
+            print("   - %s" % name, flush=True)
+            print("       raw  : %s" % url[:150], flush=True)
+            print("       probe: %s" % probe(target), flush=True)
 
 
 main_run()
