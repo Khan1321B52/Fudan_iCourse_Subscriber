@@ -103,7 +103,8 @@ class Summarizer:
                 },
             ],
             # temperature=0.3,
-            timeout=180,
+            # 长课转写后 prompt 可达 5 万 token，180s 会超时；600s 留够思考时间。
+            timeout=600,
         )
         if not response.choices:
             raise ValueError("API returned empty choices — likely content filter or quota exceeded")
