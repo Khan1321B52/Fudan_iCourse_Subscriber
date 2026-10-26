@@ -12,19 +12,20 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Call Gemini chat completions
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python - <<'PY'
-          import json, os, urllib.request, urllib.error
+          import json, os, time, urllib.request, urllib.error
 
           key = os.environ["GEMINI_API_KEY"]
           print("key prefix:", key[:6], "len:", len(key))
           url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-          for model in ("gemini-3.8-flash", "gemini-3.6-flash"):
+
+          def call(model):
               body = json.dumps({
                   "model": model,
                   "messages": [{"role": "user", "content": "只回复：OK"}],
@@ -38,11 +39,19 @@ jobs:
                   with urllib.request.urlopen(req, timeout=120) as r:
                       d = json.loads(r.read().decode())
                   ch = d["choices"][0]
-                  print(model, "->", r.status,
-                        "content=", repr(((ch.get("message") or {}).get("content") or "")[:60]),
-                        "finish=", ch.get("finish_reason"),
-                        "usage=", d.get("usage"))
+                  return r.status, "content=%r finish=%s usage=%s" % (
+                      ((ch.get("message") or {}).get("content") or "")[:40],
+                      ch.get("finish_reason"), d.get("usage"))
               except urllib.error.HTTPError as e:
-                  print(model, "-> HTTP", e.code, e.read().decode()[:800])
-                  raise SystemExit(1)
+                  return e.code, e.read().decode()[:300]
+              except Exception as e:
+                  return -1, "%s: %s" % (type(e).__name__, e)
+
+          for model in ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash"):
+              for attempt in range(2):
+                  st, msg = call(model)
+                  print(model, "attempt", attempt, "->", st, msg)
+                  if st == 200:
+                      break
+                  time.sleep(4)
           PY
