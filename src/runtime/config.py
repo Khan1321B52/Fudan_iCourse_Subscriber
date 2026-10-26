@@ -27,7 +27,7 @@ USER_AGENT = (
 MODEL_PROVIDERS: list[dict] = [
     {
         # 免费额度优先：Gemini 免费档只覆盖 Flash 正式版
-        # （gemini-3.8-flash / gemini-3.6-flash）。4 Argon 和 -preview
+        # （gemini-3.6-flash）。Argon 和 -preview
         # 预览模型按付费档计费，不要放进来。
         "name": "gemini",
         "api_key_env": "GEMINI_API_KEY",
@@ -35,7 +35,6 @@ MODEL_PROVIDERS: list[dict] = [
         "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "models": [
             "gemini-3.6-flash",
-            "gemini-3.5-flash",
         ],
     },
     {
@@ -44,9 +43,8 @@ MODEL_PROVIDERS: list[dict] = [
         "base_url_env": "DASHSCOPE_BASE_URL",
         "default_base_url": "https://api-inference.modelscope.cn/v1/",
         "models": [
-            "deepseek-ai/DeepSeek-V4-Pro-0813",
             "deepseek-ai/DeepSeek-V4.1-Flash",
-            "deepseek-ai/DeepSeek-V4-Flash-0731"
+            "deepseek-ai/DeepSeek-V4.1-Flash-1017"
         ],
     },
     {
