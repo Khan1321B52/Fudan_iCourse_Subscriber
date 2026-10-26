@@ -1,0 +1,48 @@
+name: Gemini Key Test
+
+# TEMP: 一次性验证 GEMINI_API_KEY 在 runner 上能否调通、免费档模型是否可用。
+# 验证完删除本文件。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call Gemini chat completions
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request, urllib.error
+
+          key = os.environ["GEMINI_API_KEY"]
+          print("key prefix:", key[:6], "len:", len(key))
+          url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+          for model in ("gemini-3.8-flash", "gemini-3.6-flash"):
+              body = json.dumps({
+                  "model": model,
+                  "messages": [{"role": "user", "content": "只回复：OK"}],
+                  "max_tokens": 40,
+              }).encode()
+              req = urllib.request.Request(
+                  url, data=body,
+                  headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=120) as r:
+                      d = json.loads(r.read().decode())
+                  ch = d["choices"][0]
+                  print(model, "->", r.status,
+                        "content=", repr(((ch.get("message") or {}).get("content") or "")[:60]),
+                        "finish=", ch.get("finish_reason"),
+                        "usage=", d.get("usage"))
+              except urllib.error.HTTPError as e:
+                  print(model, "-> HTTP", e.code, e.read().decode()[:800])
+                  raise SystemExit(1)
+          PY
