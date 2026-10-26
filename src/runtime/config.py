@@ -26,6 +26,19 @@ USER_AGENT = (
 # 现的那条；这避免 Summarizer 内部按 name 索引 client 字典时被后写覆盖。
 MODEL_PROVIDERS: list[dict] = [
     {
+        # 免费额度优先：Gemini 免费档只覆盖 Flash 正式版
+        # （gemini-3.8-flash / gemini-3.6-flash）。4 Argon 和 -preview
+        # 预览模型按付费档计费，不要放进来。
+        "name": "gemini",
+        "api_key_env": "GEMINI_API_KEY",
+        "base_url_env": "GEMINI_BASE_URL",
+        "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "models": [
+            "gemini-3.8-flash",
+            "gemini-3.6-flash",
+        ],
+    },
+    {
         "name": "modelscope",
         "api_key_env": "DASHSCOPE_API_KEY",
         "base_url_env": "DASHSCOPE_BASE_URL",
@@ -57,16 +70,6 @@ MODEL_PROVIDERS: list[dict] = [
     #         "Qwen/Qwen3.5-397B-A17B",
     #     ],
     # },
-    {
-        "name": "gemini",
-        "api_key_env": "GEMINI_API_KEY",
-        "base_url_env": "GEMINI_BASE_URL",
-        "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "models": [
-            "gemini-2.5-flash",
-            "gemini-3-flash-preview",
-        ],
-    }
 ]
 
 
