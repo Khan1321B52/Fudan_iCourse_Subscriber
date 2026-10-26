@@ -5,6 +5,9 @@ on:
     # Every day at 19:36 BTC (UTC + 8)
     # 设计这个奇怪的时间是为了避免整点时的github队列峰值，避免排队过久。
     - cron: "36 11 * * *"
+    # TEMP 2026-10-26：10-15 起定时触发就不再出现（workflow 仍显示 active）。
+    # 先加一条 21:05 CST 的近时 cron，验证重新 enable 后调度是否恢复；验证完删掉。
+    - cron: "5 13 * * *"
   workflow_dispatch:
 
 permissions:
