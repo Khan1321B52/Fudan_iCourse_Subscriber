@@ -38,6 +38,7 @@ threads pick up refreshed cookies through the shared ``ICourseClient``.
 from __future__ import annotations
 
 import time
+from collections import Counter
 from typing import TYPE_CHECKING, Optional
 
 from src.ai import bucketer
@@ -146,10 +147,9 @@ class LectureRunner:
 
         # ── Phase F — bucketed-prompt LLM summary ──────────────────────
         if not transcript.strip():
-            self._reporter.info("    Empty transcript, skipping summary.")
+            self._reporter.info("    Empty transcript, leaving lecture unprocessed.")
             self._release_audio(sub_id)
-            self._db.mark_processed(sub_id)
-            self._db.clear_error(sub_id)
+            self._db.update_error(sub_id, "transcribe", "ASR returned no text")
             return None
 
         summary = self._summarize(
@@ -236,6 +236,16 @@ class LectureRunner:
         truncation)."""
         if not segments:
             return False
+        texts = [
+            "".join(c for c in segment["text"] if c.isalnum())
+            for segment in segments
+        ]
+        if not any(texts):
+            return False
+        # Some broken captions cover the full recording with one repeated character.
+        text, count = Counter(texts).most_common(1)[0]
+        if len(texts) >= 20 and len(text) <= 1 and count / len(texts) >= 0.9:
+            return False
         max_gap_ms = max_gap_minutes * 60_000
         if segments[0]["start_ms"] > max_gap_ms:
             return False
@@ -300,9 +310,10 @@ class LectureRunner:
         downloader.schedule(self._client, course_id, sub_id)
         try:
             handle = downloader.get(sub_id, timeout=120)
-        except TimeoutError as e:
+        except (TimeoutError, RuntimeError) as e:
             self._reporter.info(f"    [SKIP] {e}")
             self._db.update_error(sub_id, "transcribe", str(e))
+            self._release_audio(sub_id)
             return None, None
         if handle is None:
             # AudioDownloader returns None when get_video_url() returned
@@ -324,7 +335,6 @@ class LectureRunner:
         except NoAudioStreamError as e:
             self._reporter.info(f"    [SKIP] Video-only (no audio stream): {e}")
             self._db.update_error(sub_id, "transcribe", str(e))
-            self._db.mark_processed(sub_id)
             self._release_audio(sub_id)
             return None, None
         except IncompleteAudioError as e:
@@ -346,7 +356,8 @@ class LectureRunner:
             self._release_audio(sub_id)
             raise
 
-        self._db.update_transcript(sub_id, transcript)
+        if transcript.strip():
+            self._db.update_transcript(sub_id, transcript)
         return transcript, segments
 
     def _summarize(self, sub_id: str, course_title: str, transcript: str,

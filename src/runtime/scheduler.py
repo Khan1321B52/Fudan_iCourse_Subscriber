@@ -8,7 +8,7 @@ LectureRunner can focus on per-lecture business logic.
   audio_downloader  2 slots     IO bound  (ffmpeg URL → audio.raw to disk)
 
 The audio downloader is special: each "slot" hosts a running ffmpeg process
-that writes f32le mono 16 kHz audio to a per-sub_id scratch file.  Transcriber
+that writes f32le stereo 16 kHz audio to a per-sub_id scratch file.  Transcriber
 reads that file with tail-f semantics while ffmpeg is still writing — so the
 network download isn't bottlenecked by ASR speed and the ASR isn't blocked
 on download completion.  See ``AudioDownloader`` below.
@@ -128,7 +128,7 @@ class AudioHandle:
     """Reference to an audio-extraction job."""
 
     sub_id: str
-    path: str          # disk file ffmpeg writes f32le mono 16 kHz to
+    path: str          # disk file ffmpeg writes f32le stereo 16 kHz to
     process: subprocess.Popen
     stderr_chunks: list[bytes]
 
@@ -139,12 +139,15 @@ class _PendingSpawn:
     the spawn thread detect that its entry was ``release()``-d (or replaced)
     in the meantime and abort instead of resurrecting a zombie entry."""
 
+    def __init__(self):
+        self.error: RuntimeError | None = None
+
 
 class AudioDownloader:
     """Spawn-and-track concurrent ``ffmpeg`` audio extractions.
 
-    For each sub_id we spawn one ``ffmpeg -i <signed URL> -vn -ar 16000 -ac 1
-    -f f32le <path>`` process.  ``ffmpeg`` writes the decoded mono float32
+    For each sub_id we spawn one ``ffmpeg -i <signed URL> -vn -ar 16000 -ac 2
+    -f f32le <path>`` process.  ``ffmpeg`` writes the decoded stereo float32
     audio straight to disk at network speed — no Python pipe in the loop, so
     download is NOT bottlenecked by ASR consumption.  Transcriber reads that
     file with tail-f semantics, processing chunks as they arrive.
@@ -224,7 +227,7 @@ class AudioDownloader:
                     "-i", vpn_url,
                     "-vn",
                     "-ar", "16000",
-                    "-ac", "1",
+                    "-ac", "2",
                     "-f", "f32le",
                     path,
                 ]
@@ -291,10 +294,13 @@ class AudioDownloader:
                     target=self._monitor, args=(handle,),
                     name=f"audio-monitor-{sub_id}", daemon=True,
                 ).start()
-            except Exception:
-                self._pop_if_mine(sub_id, pending)
+            except Exception as e:
+                error = RuntimeError(f"Audio prefetch for {sub_id} failed ({type(e).__name__})")
+                with self._lock:
+                    if self._active.get(sub_id) is pending:
+                        pending.error = error
                 self._sem.release()
-                raise
+                raise error from None
         except Exception as e:
             if self._reporter:
                 self._reporter.audio_prefetch_failed(sub_id, e)
@@ -308,6 +314,7 @@ class AudioDownloader:
 
         Returns None if sub_id was never scheduled (or already released).
         Raises TimeoutError if the spawn never happens within ``timeout``.
+        Raises RuntimeError if playback lookup or ffmpeg startup failed.
         """
         sub_id = str(sub_id)
         deadline = time.time() + timeout
@@ -318,6 +325,8 @@ class AudioDownloader:
                     return None
                 if isinstance(entry, AudioHandle):
                     return entry
+                if entry.error is not None:
+                    raise entry.error
             if time.time() > deadline:
                 raise TimeoutError(
                     f"audio download for {sub_id} did not start within "
