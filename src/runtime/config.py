@@ -27,13 +27,14 @@ USER_AGENT = (
 MODEL_PROVIDERS: list[dict] = [
     {
         # 免费额度优先：Gemini 免费档只覆盖 Flash 正式版
-        # （gemini-3.8-flash，当前唯一在试的一代；调不通就整条 gemini 作废）。Argon 和 -preview
+        # （3.6-flash 实测可用；3.8-flash 目前 503/超时，只作备用）。Argon 和 -preview
         # 预览模型按付费档计费，不要放进来。
         "name": "gemini",
         "api_key_env": "GEMINI_API_KEY",
         "base_url_env": "GEMINI_BASE_URL",
         "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "models": [
+            "gemini-3.6-flash",
             "gemini-3.8-flash",
         ],
     },
