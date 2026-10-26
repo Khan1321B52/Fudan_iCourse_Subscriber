@@ -33,7 +33,7 @@ MODEL_PROVIDERS: list[dict] = [
         "models": [
             "deepseek-ai/DeepSeek-V4-Pro-0813",
             "deepseek-ai/DeepSeek-V4.1-Flash",
-"deepseek-ai/DeepSeek-V4-Flash-0731"
+            "deepseek-ai/DeepSeek-V4-Flash-0731"
         ],
     },
     {
