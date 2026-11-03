@@ -10,61 +10,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Probe strongest candidates
+      - name: Probe flash models
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_BASE_URL: ${{ secrets.GEMINI_BASE_URL }}
         run: |
           python3 - <<'PY'
           import json, os, urllib.request, urllib.error
 
           key = os.environ.get("GEMINI_API_KEY", "")
-          base = os.environ.get("GEMINI_BASE_URL", "")
-          print("KEY_SET", bool(key), "BASE_SET", bool(base), flush=True)
           API = "https://generativelanguage.googleapis.com/v1beta"
-
-          def post(url, payload, headers, timeout=120):
-              req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers)
-              with urllib.request.urlopen(req, timeout=timeout) as r:
-                  return json.load(r)
-
-          def native(model):
-              url = f"{API}/models/{model}:generateContent?key={key}"
-              return post(url, {
-                  "contents": [{"role": "user", "parts": [{"text": "Reply with exactly: OK"}]}],
-                  "generationConfig": {"maxOutputTokens": 32},
-              }, {"Content-Type": "application/json"})
+          print("KEY_SET", bool(key), flush=True)
 
           def compat(model):
               url = f"{API}/openai/chat/completions"
-              return post(url, {
+              payload = {
                   "model": model,
                   "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
                   "max_tokens": 32,
-              }, {"Content-Type": "application/json", "Authorization": "Bearer " + key})
+              }
+              req = urllib.request.Request(
+                  url,
+                  data=json.dumps(payload).encode(),
+                  headers={"Content-Type": "application/json", "Authorization": "Bearer " + key},
+              )
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  return json.load(r)
 
           models = [
-              
-              
-              
+              "gemini-flash-latest",
               "gemini-3.8-flash",
               "gemini-3.7-flash",
-              
               "gemini-3.6-flash",
+              "gemini-3.5-flash",
           ]
 
           for m in models:
-              for label, fn in (("native", native), ("compat", compat)):
-                  try:
-                      d = fn(m)
-                      if label == "native":
-                          txt = d["candidates"][0]["content"]["parts"][0].get("text", "")
-                      else:
-                          txt = d["choices"][0]["message"].get("content", "")
-                      print("PROBE", m, label, "OK", repr(txt[:40]), flush=True)
-                  except urllib.error.HTTPError as e:
-                      body = e.read().decode("utf-8", "replace").replace("\n", " ")[:260]
-                      print("PROBE", m, label, "HTTP", e.code, body, flush=True)
-                  except Exception as e:
-                      print("PROBE", m, label, "EXC", type(e).__name__, str(e)[:200], flush=True)
+              try:
+                  d = compat(m)
+                  txt = d["choices"][0]["message"].get("content", "")
+                  print("PROBE", m, "OK", repr(txt[:40]), flush=True)
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode("utf-8", "replace").replace("\n", " ")[:200]
+                  print("PROBE", m, "HTTP", e.code, body, flush=True)
+              except Exception as e:
+                  print("PROBE", m, "EXC", type(e).__name__, str(e)[:200], flush=True)
           PY
