@@ -1,8 +1,36 @@
 """LLM-based course lecture summarization via ModelScope API."""
 
+import random
 import time
 
 from openai import OpenAI
+
+# 瞬时错误的状态码：5xx 是服务端容量抖动，408 是超时。
+# 429 只在响应带 Retry-After 时重试（每分钟限流值得等；日配额等了也没用）。
+_RETRYABLE_STATUS = {408, 500, 502, 503, 504}
+
+# 长等待重试的间隔（秒）。SDK 自带的两次重试只隔约 1 秒，救不了容量抖动。
+_RETRY_DELAYS = (10, 30)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """True only for errors that a later attempt can plausibly fix."""
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        if status == 429:
+            headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+            try:
+                return float(headers.get("retry-after", 0)) > 0
+            except (TypeError, ValueError):
+                return False
+        return status in _RETRYABLE_STATUS
+    return type(exc).__name__ in (
+        "APIConnectionError",
+        "APITimeoutError",
+        "APIConnectionTimeoutError",
+        "ReadTimeout",
+        "ConnectTimeout",
+    )
 
 from src.runtime import config
 
@@ -131,6 +159,32 @@ class Summarizer:
             )
         return result
 
+    def _call_llm_with_retry(self, client: OpenAI, model: str,
+                             title: str, content: str) -> str:
+        """Call the model, retrying transient failures with longer backoff.
+
+        The OpenAI SDK already retries 5xx twice with ~1s backoff, which is
+        too short for capacity blips (e.g. Gemini "high demand" 503s). Retry
+        up to three attempts total, sleeping 10s then 30s (+jitter).
+        400/401/403/404 are not retried: they would fail the same way again.
+        """
+        last_exc = None
+        for attempt, delay in enumerate((0,) + _RETRY_DELAYS):
+            if delay:
+                time.sleep(delay + random.uniform(0, 3))
+            try:
+                return self._call_llm(client, model, title, content)
+            except Exception as e:
+                last_exc = e
+                if not _is_retryable(e) or attempt >= len(_RETRY_DELAYS):
+                    raise
+                print(
+                    f"[Summarizer] {model} transient failure "
+                    f"(attempt {attempt + 1}/3): {type(e).__name__}: "
+                    f"{str(e)[:120]} — retrying in ~{delay}s"
+                )
+        raise last_exc
+
     def summarize(self, title: str, content: str) -> tuple[str, str]:
         """Summarize lecture, trying providers in MODEL_PROVIDERS order.
 
@@ -148,7 +202,7 @@ class Summarizer:
             for model in provider["models"]:
                 model_id = f"{provider['name']}/{model}"
                 try:
-                    result = self._call_llm(client, model, title, content)
+                    result = self._call_llm_with_retry(client, model, title, content)
                     return (result, model_id)
                 except Exception as e:
                     print(f"[Summarizer] {model_id} failed: "
