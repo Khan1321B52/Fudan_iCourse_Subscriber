@@ -181,7 +181,7 @@ class Summarizer:
                 print(
                     f"[Summarizer] {model} transient failure "
                     f"(attempt {attempt + 1}/3): {type(e).__name__}: "
-                    f"{str(e)[:120]} — retrying in ~{delay}s"
+                    f"{str(e)[:120]} — retrying in ~{_RETRY_DELAYS[attempt]}s"
                 )
         raise last_exc
 
