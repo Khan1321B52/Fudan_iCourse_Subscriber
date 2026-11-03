@@ -5,6 +5,7 @@ on:
     # Every day at 19:36 BTC (UTC + 8)
     # 设计这个奇怪的时间是为了避免整点时的github队列峰值，避免排队过久。
     - cron: "36 11 * * *"
+    # 2026-11-03：推一次空改动让 GitHub 重新注册 cron（10-14 之后 schedule 不再触发）。
   workflow_dispatch:
 
 permissions:
