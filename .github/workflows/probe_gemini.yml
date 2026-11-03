@@ -1,0 +1,106 @@
+name: Probe Gemini Catalog
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Catalog and probes
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_BASE_URL: ${{ secrets.GEMINI_BASE_URL }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, time, urllib.request, urllib.error
+          from urllib.parse import urlparse
+
+          key = os.environ.get("GEMINI_API_KEY", "")
+          base = os.environ.get("GEMINI_BASE_URL", "")
+          print("KEY_SET", bool(key), "BASE_SET", bool(base), flush=True)
+          if base:
+              u = urlparse(base)
+              print("BASE", u.scheme, u.hostname, flush=True)
+
+          API = "https://generativelanguage.googleapis.com/v1beta"
+
+          def post(url, payload, timeout=90):
+              req = urllib.request.Request(
+                  url,
+                  data=json.dumps(payload).encode(),
+                  headers={"Content-Type": "application/json"},
+              )
+              with urllib.request.urlopen(req, timeout=timeout) as r:
+                  return json.load(r)
+
+          def call_native(model):
+              url = f"{API}/models/{model}:generateContent?key={key}"
+              payload = {"contents": [{"role": "user", "parts": [{"text": "Reply with exactly: OK"}]}],
+                         "generationConfig": {"maxOutputTokens": 16}}
+              return post(url, payload)
+
+          def call_compat(model):
+              url = f"{API}/openai/chat/completions"
+              payload = {"model": model, "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+                         "max_tokens": 16}
+              req = urllib.request.Request(
+                  url,
+                  data=json.dumps(payload).encode(),
+                  headers={"Content-Type": "application/json", "Authorization": "Bearer " + key},
+              )
+              with urllib.request.urlopen(req, timeout=90) as r:
+                  return json.load(r)
+
+          try:
+              with urllib.request.urlopen(f"{API}/models?key={key}&pageSize=200", timeout=30) as r:
+                  cat = json.load(r)
+              models = cat.get("models", [])
+              print("MODEL_COUNT", len(models), flush=True)
+              for m in models:
+                  name = m.get("name", "").replace("models/", "")
+                  methods = ",".join(m.get("supportedGenerationMethods", []))
+                  print("CAT", name, "|", m.get("displayName", ""), "|", methods, flush=True)
+          except Exception as e:
+              models = []
+              print("CATALOG_ERR", type(e).__name__, str(e)[:300], flush=True)
+
+          cand = []
+          for m in models:
+              name = m.get("name", "").replace("models/", "")
+              methods = m.get("supportedGenerationMethods", [])
+              if "generateContent" not in methods:
+                  continue
+              if re.search(r"gemini-3\.[6-9]", name) and ("flash" in name or "pro" in name):
+                  cand.append(name)
+          cand = cand[:10]
+          print("CANDIDATES", json.dumps(cand), flush=True)
+
+          for model in cand:
+              for label, fn in (("native", call_native), ("compat", call_compat)):
+                  try:
+                      fn(model)
+                      print("PROBE", model, label, "OK", flush=True)
+                  except urllib.error.HTTPError as e:
+                      body = e.read().decode("utf-8", "replace")[:180]
+                      print("PROBE", model, label, "HTTP", e.code, body, flush=True)
+                  except Exception as e:
+                      print("PROBE", model, label, "EXC", type(e).__name__, str(e)[:180], flush=True)
+
+          # retry check on the newest flash: is 503 transient?
+          target = "gemini-3.8-flash"
+          if target in cand:
+              for i in range(3):
+                  try:
+                      call_native(target)
+                      print("RETRY", target, i, "OK", flush=True)
+                      break
+                  except urllib.error.HTTPError as e:
+                      print("RETRY", target, i, "HTTP", e.code, flush=True)
+                  except Exception as e:
+                      print("RETRY", target, i, "EXC", type(e).__name__, flush=True)
+                  time.sleep(20)
+          PY
