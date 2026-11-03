@@ -5,6 +5,8 @@ import time
 
 from openai import OpenAI
 
+from src.runtime import config
+
 # 瞬时错误的状态码：5xx 是服务端容量抖动，408 是超时。
 # 429 只在响应带 Retry-After 时重试（每分钟限流值得等；日配额等了也没用）。
 _RETRYABLE_STATUS = {408, 500, 502, 503, 504}
@@ -32,7 +34,6 @@ def _is_retryable(exc: Exception) -> bool:
         "ConnectTimeout",
     )
 
-from src.runtime import config
 
 SYSTEM_PROMPT= r"""你是一个专业的课程助教。你的任务是根据用户提供的课程录音文本和ppt文字ocr部分，生成用于学生自学和期末复习的详细笔记。
 1. **直接输出**：不要包含任何"好的"、"没问题"、"以下是总结"等客套话，不要输出全局课程名称大标题（由系统自动生成），直接开始总结即可。
