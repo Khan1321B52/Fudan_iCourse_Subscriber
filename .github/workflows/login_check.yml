@@ -1,0 +1,76 @@
+name: Login Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install authentication dependencies only
+        run: python -m pip install --disable-pip-version-check requests pycryptodome
+      - name: Verify WebVPN and iCourse login without processing courses
+        timeout-minutes: 6
+        env:
+          StuId: ${{ secrets.STUID }}
+          UISPsw: ${{ secrets.UISPSW }}
+          UIS_TOTP_SECRET: ${{ secrets.UIS_TOTP_SECRET }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -u - <<'PY'
+          import contextlib
+          import io
+          import time
+
+          from src.api.webvpn import SecondFactorError, WebVPNSession
+          from src.runtime import config
+
+          # Deliberately do not import main, the database, SMTP or model clients.
+          # Do not print credentials, response bodies, user details or redirect URLs.
+          if not config.STUDENT_ID or not config.PASSWORD or not config.TOTP_SECRET:
+              print("[Login Check] Missing STUID, UISPSW or UIS_TOTP_SECRET.", flush=True)
+              raise SystemExit(1)
+
+          for attempt in range(1, 4):
+              print(f"[Login Check] Authentication attempt {attempt}/3", flush=True)
+              vpn = WebVPNSession()
+              internal_output = io.StringIO()
+              try:
+                  with contextlib.redirect_stdout(internal_output):
+                      vpn.login()
+                      vpn.authenticate_icourse()
+                  response = vpn.get(config.ICOURSE_BASE + "/userapi/v1/infosimple", timeout=30)
+                  response.raise_for_status()
+                  payload = response.json()
+                  user = (payload.get("params") or payload.get("data")) if isinstance(payload, dict) else None
+                  if not (isinstance(payload, dict) and payload.get("code") in (0, 200)
+                          and isinstance(user, dict) and user.get("id")):
+                      raise RuntimeError("Authenticated user information was not confirmed")
+                  if "[Login] TOTP OK" in internal_output.getvalue():
+                      print("[Login Check] TOTP second factor: passed.", flush=True)
+                  else:
+                      print("[Login Check] No TOTP challenge was required by this session.", flush=True)
+                  print("[Login Check] PASS: WebVPN + iCourse + authenticated user API.", flush=True)
+                  print("[Login Check] No courses, media, database, model API or email were processed.", flush=True)
+                  break
+              except SecondFactorError as error:
+                  # Upstream SecondFactorError messages are explicitly credential-free.
+                  print(f"[Login Check] Second factor needs attention: {error}", flush=True)
+                  raise SystemExit(1) from None
+              except Exception as error:
+                  print(f"[Login Check] Attempt failed ({type(error).__name__}); private details omitted.", flush=True)
+                  if attempt == 3:
+                      raise SystemExit(1) from None
+                  time.sleep(5)
+              finally:
+                  vpn.session.close()
+                  internal_output.close()
+          PY
